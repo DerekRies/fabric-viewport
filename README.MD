@@ -16,6 +16,14 @@ const viewport = new Viewport({
   scrollbars: true,
 });
 viewport.install(canvas);
+
+const doc = new fabric.Rect({ ... })
+canvas.add(doc);
+
+// Resizes the world to fit a fabric object
+viewport.fitWorld(doc, { padding: 20});
+// Zooms and translates the viewport to fit a fabric object
+viewport.fit(doc)
 ```
 
 _Work in progress..._
