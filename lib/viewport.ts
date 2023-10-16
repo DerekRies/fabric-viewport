@@ -39,6 +39,11 @@ export class Viewport {
     lastY: 0,
   };
 
+  private verticalScrollDraggingContext = {
+    isDragging: false,
+    lastY: 0,
+  };
+
   constructor({
     screenHeight,
     screenWidth,
@@ -52,6 +57,8 @@ export class Viewport {
     this.worldHeight = worldHeight;
     this.showingScrollbars = scrollbars;
     this.isInstalled = false;
+    document.addEventListener("mousemove", this.handleGlobalMouseMove);
+    document.addEventListener("mouseup", this.handleGlobalMouseUp);
   }
 
   private installFabricCanvas(canvas: fabric.Canvas) {
@@ -67,6 +74,11 @@ export class Viewport {
       height: this.worldHeight,
       selectable: false,
       fill: "#f1f1f1",
+      data: {
+        fabricViewport: {
+          type: "world",
+        },
+      },
     });
     canvas.add(this.fabricWorldObject);
     this.injectScrollbars();
@@ -77,7 +89,6 @@ export class Viewport {
   }
 
   private handleMouseWheel = (opt: fabric.IEvent<WheelEvent>) => {
-    console.log("mousewheel", opt.e.deltaY);
     this.translate(0, -1 * opt.e.deltaY * this.scrollFactor);
   };
 
@@ -99,6 +110,30 @@ export class Viewport {
 
     this.draggingContext.lastX = opt.e.clientX;
     this.draggingContext.lastY = opt.e.clientY;
+  };
+
+  private handleScrollThumbMouseDown = (e: MouseEvent) => {
+    console.log("Starting scrollbar drag");
+    this.verticalScrollDraggingContext.isDragging = true;
+    this.verticalScrollDraggingContext.lastY = e.clientY;
+  };
+
+  private handleGlobalMouseMove = (e: MouseEvent) => {
+    if (!this.verticalScrollDraggingContext.isDragging) return;
+
+    const deltaY = -1 * (e.clientY - this.verticalScrollDraggingContext.lastY);
+    this.verticalScrollDraggingContext.lastY = e.clientY;
+    // 2.1 is the magic number where the scroll translation matches
+    // the apparent scrolling speed with the scrollbar.
+    // We could make this less magical by actually calculating the
+    // percent translation required to match the scrollbar exactly
+    // but then we've got two directions for the data behind our
+    // scrollbar to synchronize.
+    this.translate(0, deltaY * 2.1);
+  };
+
+  private handleGlobalMouseUp = (e) => {
+    this.verticalScrollDraggingContext.isDragging = false;
   };
 
   translate(deltaX: number, deltaY: number) {
@@ -141,9 +176,6 @@ export class Viewport {
     const containerEl = this.canvas?.getElement().parentElement;
     if (containerEl == undefined) return;
 
-    // const scrollbarContainer = document.createElement("div");
-    // scrollbarContainer.id = "fabric-viewport-virtual-scrollbar-root";
-
     const verticalScrollbarContainer = document.createElement("div");
     verticalScrollbarContainer.className =
       "fv-virtual-scrollbar-container vertical-scrollbar";
@@ -158,9 +190,6 @@ export class Viewport {
     horizontalScrollbarThumb.className = "fv-virtual-scrollbar-thumb";
     horizontalScrollbarContainer.appendChild(horizontalScrollbarThumb);
 
-    // scrollbarContainer.appendChild(verticalScrollbarContainer);
-    // scrollbarContainer.appendChild(horizontalScrollbarContainer);
-    // containerEl.appendChild(scrollbarContainer);
     containerEl.appendChild(verticalScrollbarContainer);
     containerEl.appendChild(horizontalScrollbarContainer);
 
@@ -168,6 +197,11 @@ export class Viewport {
     this.horizontalScrollbarThumbEl = horizontalScrollbarThumb;
     this.horizontalScrollbarContainerEl = horizontalScrollbarContainer;
     this.verticalScrollbarContainerEl = verticalScrollbarContainer;
+
+    verticalScrollbarThumb.addEventListener(
+      "mousedown",
+      this.handleScrollThumbMouseDown
+    );
 
     this.scrollbarHeight =
       verticalScrollbarContainer.getBoundingClientRect().height;
@@ -185,6 +219,7 @@ export class Viewport {
       this.horizontalScrollbarContainerEl == undefined ||
       this.verticalScrollbarContainerEl == undefined
     ) {
+      // console.log("cancelling calc scrollbars");
       return;
     }
     const viewportBounds = this.calcViewportBoundaries();
@@ -262,19 +297,146 @@ export class Viewport {
 
     this.installFabricCanvas(canvas);
     return canvas;
-    // const handlers = {
-    //   get(target, prop, receiver) {
-    //     console.log(`Accessing ${prop} on fabric.Canvas`);
-    //     return target[prop];
-    //   },
-    // };
-
-    // const proxyCanvas = new Proxy(canvas, handlers);
-    // return proxyCanvas;
   }
 
   setZoom(level: number) {
     this.canvas?.setZoom(level);
     this.calculateScrollbars(true);
   }
+
+  /**
+   * Resizes the world to fit around a provided fabric object.
+   *
+   * NOTE: This will move your objects as the underlying world
+   * is changed.
+   * @param targetObj
+   * @param options
+   */
+  resizeWorldToFit(targetObj: fabric.Object, options?: Partial<FitOptions>) {
+    const actualOptions: FitOptions = {
+      paddingX: 0,
+      paddingY: 0,
+      maintainAspectRatio: true,
+      center: true,
+      ...options,
+    };
+    const objBounds = targetObj.getBoundingRect();
+    const viewportAspectRatio = this.screenWidth / this.screenHeight;
+    const objAspectRatio =
+      (objBounds.width + actualOptions.paddingX) /
+      (objBounds.height + actualOptions.paddingY);
+
+    // When maintaining the viewport aspect ratio
+    // our final world width / final world height
+    // must be the same.
+    // So which do we find, height or width?
+
+    let newHeight, newWidth;
+    if (objAspectRatio < 1) {
+      // portrait
+      newHeight = objBounds.height + actualOptions.paddingY;
+      newWidth = newHeight * viewportAspectRatio;
+    } else {
+      // landscape
+      newWidth = objBounds.width + actualOptions.paddingX;
+      newHeight = newWidth / viewportAspectRatio;
+    }
+
+    this.fabricWorldObject!.width = newWidth;
+    this.fabricWorldObject!.height = newHeight;
+    this.worldHeight = newHeight;
+    this.worldWidth = newWidth;
+
+    // Translate the target object such that its centered within
+    // the world now.
+    const centerOffsetX = objBounds.width / 2;
+    const centerOffsetY = objBounds.height / 2;
+
+    const worldCenterX = newWidth / 2;
+    const worldCenterY = newHeight / 2;
+
+    const newTargetX = worldCenterX - centerOffsetX;
+    const newTargetY = worldCenterY - centerOffsetY;
+    const deltaX = targetObj.left! - newTargetX;
+    const deltaY = targetObj.top! - newTargetY;
+
+    // targetObj.top = newTargetY;
+    // targetObj.left = newTargetX;
+    targetObj.top! -= deltaY;
+    targetObj.left! -= deltaX;
+
+    // Then translate all the existing objects by the same amount.
+    this.canvas?._objects.forEach((obj) => {
+      if (obj.data?.fabricViewport?.type === "world") return;
+      if (obj === targetObj) return;
+
+      obj.left! -= deltaX;
+      obj.top! -= deltaY;
+    });
+
+    this.calculateScrollbars(true);
+  }
+
+  fitToWorld() {
+    const viewportAspectRatio = this.screenWidth / this.screenHeight;
+    const worldAspectRatio = this.worldWidth / this.worldHeight;
+
+    const scaleX = this.screenWidth / this.worldWidth;
+    const scaleY = this.screenHeight / this.worldHeight;
+    const scaleFactor = Math.min(scaleX, scaleY);
+
+    const translateX = (this.screenWidth - this.worldWidth * scaleFactor) / 2;
+    const translateY = (this.screenHeight - this.worldHeight * scaleFactor) / 2;
+
+    this.canvas?.setViewportTransform([
+      scaleFactor,
+      0,
+      0,
+      scaleFactor,
+      translateX,
+      translateY,
+    ]);
+    this.calculateScrollbars(true);
+    this.canvas?.requestRenderAll();
+  }
+
+  centerToWorld(opts?: Partial<CenterOptions>) {
+    if (this.canvas == undefined) return;
+    const options: CenterOptions = {
+      horizontal: true,
+      vertical: true,
+      ...opts,
+    };
+
+    const scaleFactor = this.canvas.getZoom();
+    const translateX = options.horizontal
+      ? (this.screenWidth - this.worldWidth * scaleFactor) / 2
+      : 0;
+    const translateY = options.vertical
+      ? (this.screenHeight - this.worldHeight * scaleFactor) / 2
+      : 0;
+
+    this.canvas?.setViewportTransform([
+      scaleFactor,
+      0,
+      0,
+      scaleFactor,
+      translateX,
+      translateY,
+    ]);
+    this.calculateScrollbars(true);
+    this.canvas?.requestRenderAll();
+  }
+}
+
+export interface CenterOptions {
+  horizontal: boolean;
+  vertical: boolean;
+}
+
+export interface FitOptions {
+  paddingX: number;
+  paddingY: number;
+  maintainAspectRatio: boolean;
+  center: boolean;
 }

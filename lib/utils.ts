@@ -8,3 +8,12 @@ export function clamp(min: number, val: number, max: number): number {
 
   return val;
 }
+
+export function screenToWorldCoordinates() {}
+
+export function worldToScreenCoordinates() {}
+
+/**
+ * Is a point within the world bounding box?
+ */
+export function isWithinWorld() {}

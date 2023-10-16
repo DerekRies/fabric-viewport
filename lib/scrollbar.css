@@ -29,6 +29,10 @@
   will-change: transform;
 }
 
+.fv-virtual-scrollbar-thumb:hover {
+  background: #999;
+}
+
 .fv-virtual-scrollbar-container.vertical-scrollbar {
   right: var(--scrollbar-margin);
   top: var(--scrollbar-margin);
