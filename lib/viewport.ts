@@ -89,7 +89,7 @@ export class Viewport {
   }
 
   private handleMouseWheel = (opt: fabric.IEvent<WheelEvent>) => {
-    this.translate(0, -1 * opt.e.deltaY * this.scrollFactor);
+    this.translate(-1 * opt.e.deltaX * this.scrollFactor, -1 * opt.e.deltaY * this.scrollFactor);
   };
 
   private handleMouseDown = (opt: fabric.IEvent<MouseEvent>) => {
@@ -102,6 +102,8 @@ export class Viewport {
     if (!this.draggingContext.isDragging || this.canvas == undefined) return;
     if (!opt.e.ctrlKey) return;
     this.canvas.selection = false;
+    opt.e.stopPropagation();
+    opt.e.preventDefault();
 
     const deltaX = opt.e.clientX - this.draggingContext.lastX;
     const deltaY = opt.e.clientY - this.draggingContext.lastY;
