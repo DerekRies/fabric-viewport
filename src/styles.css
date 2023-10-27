@@ -1,3 +1,7 @@
+html, body {
+  overscroll-behavior: none;
+}
+
 #app-canvas-container {
   background: black;
   padding: 20px;

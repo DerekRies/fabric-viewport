@@ -1,5 +1,8 @@
+/* eslint-disable no-param-reassign */
+/* eslint-disable lines-between-class-members */
 import { fabric } from "fabric";
 import { clamp } from "./utils";
+import { isNil } from "lodash";
 import "./scrollbar.css";
 
 export interface ViewportOptions {
@@ -8,6 +11,13 @@ export interface ViewportOptions {
   worldWidth: number;
   worldHeight: number;
   scrollbars?: boolean;
+}
+
+export interface BBox {
+  top: number;
+  left: number;
+  right: number;
+  bottom: number;
 }
 
 export class Viewport {
@@ -26,13 +36,12 @@ export class Viewport {
   private horizontalScrollbarContainerEl: HTMLDivElement | undefined;
   private verticalScrollbarContainerEl: HTMLDivElement | undefined;
 
-  private scrollbarHeight: number = 0;
-  private scrollbarWidth: number = 0;
+  private scrollbarHeight = 0;
+  private scrollbarWidth = 0;
   private zoom = 1;
 
   private scrollFactor = 0.5;
 
-  // private isDragging = false;
   private draggingContext = {
     isDragging: false,
     lastX: 0,
@@ -43,6 +52,12 @@ export class Viewport {
     isDragging: false,
     lastY: 0,
   };
+
+  /**
+   * The "thing" that viewport panning is clamped to, and controls
+   * how scrollbars are calculated
+   */
+  private pageAreaTarget: fabric.Object | null = null;
 
   constructor({
     screenHeight,
@@ -61,7 +76,7 @@ export class Viewport {
     document.addEventListener("mouseup", this.handleGlobalMouseUp);
   }
 
-  private installFabricCanvas(canvas: fabric.Canvas) {
+  private installFabricCanvas(canvas: fabric.Canvas): void {
     this.canvas = canvas;
     canvas.setDimensions({
       width: this.screenWidth,
@@ -80,6 +95,7 @@ export class Viewport {
         },
       },
     });
+    this.pageAreaTarget = this.fabricWorldObject;
     canvas.add(this.fabricWorldObject);
     this.injectScrollbars();
     canvas.on("mouse:down", this.handleMouseDown);
@@ -88,18 +104,21 @@ export class Viewport {
     canvas.on("mouse:wheel", this.handleMouseWheel);
   }
 
-  private handleMouseWheel = (opt: fabric.IEvent<WheelEvent>) => {
-    this.translate(-1 * opt.e.deltaX * this.scrollFactor, -1 * opt.e.deltaY * this.scrollFactor);
+  private handleMouseWheel = (opt: fabric.IEvent<WheelEvent>): void => {
+    this.translate(
+      -1 * opt.e.deltaX * this.scrollFactor,
+      -1 * opt.e.deltaY * this.scrollFactor
+    );
   };
 
-  private handleMouseDown = (opt: fabric.IEvent<MouseEvent>) => {
+  private handleMouseDown = (opt: fabric.IEvent<MouseEvent>): void => {
     this.draggingContext.isDragging = true;
     this.draggingContext.lastX = opt.e.clientX;
     this.draggingContext.lastY = opt.e.clientY;
   };
 
-  private handleMouseMove = (opt: fabric.IEvent<MouseEvent>) => {
-    if (!this.draggingContext.isDragging || this.canvas == undefined) return;
+  private handleMouseMove = (opt: fabric.IEvent<MouseEvent>): void => {
+    if (!this.draggingContext.isDragging || !this.canvas) return;
     if (!opt.e.ctrlKey) return;
     this.canvas.selection = false;
     opt.e.stopPropagation();
@@ -114,13 +133,13 @@ export class Viewport {
     this.draggingContext.lastY = opt.e.clientY;
   };
 
-  private handleScrollThumbMouseDown = (e: MouseEvent) => {
-    console.log("Starting scrollbar drag");
+  private handleScrollThumbMouseDown = (e: MouseEvent): void => {
+    // console.log('Starting scrollbar drag');
     this.verticalScrollDraggingContext.isDragging = true;
     this.verticalScrollDraggingContext.lastY = e.clientY;
   };
 
-  private handleGlobalMouseMove = (e: MouseEvent) => {
+  private handleGlobalMouseMove = (e: MouseEvent): void => {
     if (!this.verticalScrollDraggingContext.isDragging) return;
 
     const deltaY = -1 * (e.clientY - this.verticalScrollDraggingContext.lastY);
@@ -134,14 +153,52 @@ export class Viewport {
     this.translate(0, deltaY * 2.1);
   };
 
-  private handleGlobalMouseUp = (e) => {
+  private handleGlobalMouseUp = (): void => {
     this.verticalScrollDraggingContext.isDragging = false;
   };
 
-  translate(deltaX: number, deltaY: number) {
-    if (this.canvas == undefined) return;
+  /**
+   *
+   */
+  private calculatePageAreaBoundaries(): BBox | undefined {
+    if (isNil(this.canvas)) return;
+    const zoom = this.canvas.getZoom();
+    const r = new fabric.Rect({});
+
+    const pageAreaWidth = this.pageAreaTarget?.width;
+    const pageAreaHeight = this.pageAreaTarget?.height;
+    if (isNil(pageAreaHeight) || isNil(pageAreaWidth)) return;
+
+    const rightBorder =
+      -1 *
+      (pageAreaWidth - this.screenWidth + pageAreaWidth * zoom - pageAreaWidth);
+
+    const bottomBorder =
+      -1 *
+      (pageAreaHeight -
+        this.screenHeight +
+        pageAreaHeight * zoom -
+        pageAreaHeight);
+
+    const leftBorder = (this.worldWidth - pageAreaWidth * zoom) / -2;
+    // const leftBorder = rightBorder + pageAreaWidth;
+    const topBorder = bottomBorder + pageAreaHeight;
+
+    console.log(this.worldWidth);
+    // console.log(pageAreaWidth);
+
+    return {
+      right: rightBorder,
+      bottom: bottomBorder,
+      left: leftBorder,
+      top: topBorder,
+    };
+  }
+
+  translate(deltaX: number, deltaY: number): void {
+    if (isNil(this.canvas)) return;
     const vpt = this.canvas.viewportTransform;
-    if (vpt == undefined) return;
+    if (isNil(vpt)) return;
 
     const zoom = this.canvas.getZoom();
     const nextTranslateX = vpt[4] + deltaX;
@@ -160,23 +217,29 @@ export class Viewport {
         this.worldHeight * zoom -
         this.worldHeight);
 
+    const bounds = this.calculatePageAreaBoundaries();
+    console.log({ bounds });
+
     vpt[4] = clamp(Math.min(rightBorder, 0), nextTranslateX, 0);
     vpt[5] = clamp(Math.min(bottomBorder, 0), nextTranslateY, 0);
 
+    console.log(vpt);
     this.canvas.requestRenderAll();
     this.calculateScrollbars();
   }
 
-  private handleMouseUp = (opt: fabric.IEvent<MouseEvent>) => {
+  private handleMouseUp = (_opt: fabric.IEvent<MouseEvent>): void => {
+    if (isNil(this.canvas)) return;
+
     if (this.draggingContext.isDragging) {
-      this.canvas!.selection = true;
+      this.canvas.selection = true;
     }
     this.draggingContext.isDragging = false;
   };
 
-  private injectScrollbars() {
+  private injectScrollbars(): void {
     const containerEl = this.canvas?.getElement().parentElement;
-    if (containerEl == undefined) return;
+    if (isNil(containerEl)) return;
 
     const verticalScrollbarContainer = document.createElement("div");
     verticalScrollbarContainer.className =
@@ -212,18 +275,17 @@ export class Viewport {
     this.calculateScrollbars(true);
   }
 
-  private calculateScrollbars(recalcThumbSize = false) {
+  private calculateScrollbars(recalcThumbSize = false): void {
     if (
-      this.canvas == undefined ||
-      this.fabricWorldObject == undefined ||
-      this.verticalScrollbarThumbEl == undefined ||
-      this.horizontalScrollbarThumbEl == undefined ||
-      this.horizontalScrollbarContainerEl == undefined ||
-      this.verticalScrollbarContainerEl == undefined
-    ) {
-      // console.log("cancelling calc scrollbars");
+      isNil(this.canvas) ||
+      isNil(this.fabricWorldObject) ||
+      isNil(this.verticalScrollbarThumbEl) ||
+      isNil(this.horizontalScrollbarThumbEl) ||
+      isNil(this.horizontalScrollbarContainerEl) ||
+      isNil(this.verticalScrollbarContainerEl)
+    )
       return;
-    }
+
     const viewportBounds = this.calcViewportBoundaries();
     const worldBounds = this.fabricWorldObject.getBoundingRect(true);
 
@@ -278,7 +340,7 @@ export class Viewport {
     width: number;
     height: number;
   } {
-    if (this.canvas == undefined) {
+    if (isNil(this.canvas)) {
       throw new Error("Cant calculate viewport boundaries with no canvas");
     }
 
@@ -291,9 +353,10 @@ export class Viewport {
     };
   }
 
-  install(canvas: fabric.Canvas): fabric.Canvas {
+  install<T extends fabric.Canvas>(canvas: T): T {
     if (this.isInstalled) {
-      console.warning("Viewport is already installed with the fabric canvas");
+      // eslint-disable-next-line no-console
+      console.warn("Viewport is already installed with the fabric canvas");
       return canvas;
     }
 
@@ -301,7 +364,7 @@ export class Viewport {
     return canvas;
   }
 
-  setZoom(level: number) {
+  setZoom(level: number): void {
     this.canvas?.setZoom(level);
     this.calculateScrollbars(true);
   }
@@ -314,7 +377,18 @@ export class Viewport {
    * @param targetObj
    * @param options
    */
-  resizeWorldToFit(targetObj: fabric.Object, options?: Partial<FitOptions>) {
+  resizeWorldToFit(
+    targetObj: fabric.Object,
+    options?: Partial<FitOptions>
+  ): void {
+    if (
+      isNil(this.fabricWorldObject) ||
+      isNil(targetObj.top) ||
+      isNil(targetObj.left) ||
+      isNil(this.canvas)
+    )
+      return;
+
     const actualOptions: FitOptions = {
       paddingX: 0,
       paddingY: 0,
@@ -333,7 +407,8 @@ export class Viewport {
     // must be the same.
     // So which do we find, height or width?
 
-    let newHeight, newWidth;
+    let newHeight;
+    let newWidth;
     if (objAspectRatio < 1) {
       // portrait
       newHeight = objBounds.height + actualOptions.paddingY;
@@ -344,8 +419,8 @@ export class Viewport {
       newHeight = newWidth / viewportAspectRatio;
     }
 
-    this.fabricWorldObject!.width = newWidth;
-    this.fabricWorldObject!.height = newHeight;
+    this.fabricWorldObject.width = newWidth;
+    this.fabricWorldObject.height = newHeight;
     this.worldHeight = newHeight;
     this.worldWidth = newWidth;
 
@@ -359,30 +434,32 @@ export class Viewport {
 
     const newTargetX = worldCenterX - centerOffsetX;
     const newTargetY = worldCenterY - centerOffsetY;
-    const deltaX = targetObj.left! - newTargetX;
-    const deltaY = targetObj.top! - newTargetY;
+    const deltaX = targetObj.left - newTargetX;
+    const deltaY = targetObj.top - newTargetY;
 
-    // targetObj.top = newTargetY;
-    // targetObj.left = newTargetX;
-    targetObj.top! -= deltaY;
-    targetObj.left! -= deltaX;
+    targetObj.top -= deltaY;
+    targetObj.left -= deltaX;
 
     // Then translate all the existing objects by the same amount.
-    this.canvas?._objects.forEach((obj) => {
+    this.canvas._objects.forEach((obj) => {
       if (obj.data?.fabricViewport?.type === "world") return;
       if (obj === targetObj) return;
+      if (isNil(obj.left) || isNil(obj.top)) return;
 
-      obj.left! -= deltaX;
-      obj.top! -= deltaY;
+      obj.left -= deltaX;
+      obj.top -= deltaY;
     });
 
     this.calculateScrollbars(true);
   }
 
-  fitToWorld() {
-    const viewportAspectRatio = this.screenWidth / this.screenHeight;
-    const worldAspectRatio = this.worldWidth / this.worldHeight;
-
+  /**
+   * Translates and zooms the viewport such that the world
+   * is fully visible.
+   */
+  fitToWorld(): void {
+    // const viewportAspectRatio = this.screenWidth / this.screenHeight;
+    // const worldAspectRatio = this.worldWidth / this.worldHeight;
     const scaleX = this.screenWidth / this.worldWidth;
     const scaleY = this.screenHeight / this.worldHeight;
     const scaleFactor = Math.min(scaleX, scaleY);
@@ -402,8 +479,12 @@ export class Viewport {
     this.canvas?.requestRenderAll();
   }
 
-  centerToWorld(opts?: Partial<CenterOptions>) {
-    if (this.canvas == undefined) return;
+  /**
+   * Centers the viewport to the center of the world.
+   */
+  centerToWorld(opts?: Partial<CenterOptions>): void {
+    if (isNil(this.canvas)) return;
+
     const options: CenterOptions = {
       horizontal: true,
       vertical: true,
@@ -426,6 +507,25 @@ export class Viewport {
       translateX,
       translateY,
     ]);
+    this.calculateScrollbars(true);
+    this.canvas?.requestRenderAll();
+  }
+
+  /**
+   *
+   * @param obj
+   * @param opts
+   */
+  setPageAreaTarget(obj: fabric.Object, opts: any) {
+    this.pageAreaTarget = obj;
+    this.requestRenderAll();
+  }
+
+  /**
+   * Pass-through to canvas.requestRenderAll that also recalculates
+   * the virtual scrollbars.
+   */
+  requestRenderAll() {
     this.calculateScrollbars(true);
     this.canvas?.requestRenderAll();
   }
