@@ -58,6 +58,7 @@ export class Viewport {
    * how scrollbars are calculated
    */
   private pageAreaTarget: fabric.Object | null = null;
+  private pageAreaTargetPadding = { x: 0, y: 0 };
 
   constructor({
     screenHeight,
@@ -158,34 +159,51 @@ export class Viewport {
   };
 
   /**
+   * The name is a little confusing. We're not really returning
+   * the boundaries of the page area in world or screen coordinates.
    *
+   * Effectively what we're doing is returning the min and max values
+   * for translations such that the viewport can't be panned outside
+   * the page area.
    */
   private calculatePageAreaBoundaries(): BBox | undefined {
     if (isNil(this.canvas)) return;
     const zoom = this.canvas.getZoom();
-    const r = new fabric.Rect({});
+    if (isNil(this.pageAreaTarget)) return;
 
-    const pageAreaWidth = this.pageAreaTarget?.width;
-    const pageAreaHeight = this.pageAreaTarget?.height;
-    if (isNil(pageAreaHeight) || isNil(pageAreaWidth)) return;
+    const pageAreaWidth = this.pageAreaTarget.width;
+    const pageAreaHeight = this.pageAreaTarget.height;
+    if (
+      isNil(pageAreaHeight) ||
+      isNil(pageAreaWidth) ||
+      isNil(this.pageAreaTarget.left) ||
+      isNil(this.pageAreaTarget.top)
+    )
+      return;
+
+    const offsetLeft = this.pageAreaTarget.left * zoom;
+    const offsetTop = this.pageAreaTarget.top * zoom;
 
     const rightBorder =
       -1 *
-      (pageAreaWidth - this.screenWidth + pageAreaWidth * zoom - pageAreaWidth);
+        (pageAreaWidth -
+          this.screenWidth +
+          pageAreaWidth * zoom -
+          pageAreaWidth) -
+      offsetLeft;
 
     const bottomBorder =
       -1 *
-      (pageAreaHeight -
-        this.screenHeight +
-        pageAreaHeight * zoom -
-        pageAreaHeight);
+        (pageAreaHeight -
+          this.screenHeight +
+          pageAreaHeight * zoom -
+          pageAreaHeight) -
+      offsetTop;
 
-    const leftBorder = (this.worldWidth - pageAreaWidth * zoom) / -2;
-    // const leftBorder = rightBorder + pageAreaWidth;
-    const topBorder = bottomBorder + pageAreaHeight;
-
-    console.log(this.worldWidth);
-    // console.log(pageAreaWidth);
+    const horizontalExcess = pageAreaWidth * zoom - this.screenWidth;
+    const verticalExcess = pageAreaHeight * zoom - this.screenHeight;
+    const leftBorder = rightBorder + horizontalExcess;
+    const topBorder = bottomBorder + verticalExcess;
 
     return {
       right: rightBorder,
@@ -218,10 +236,14 @@ export class Viewport {
         this.worldHeight);
 
     const bounds = this.calculatePageAreaBoundaries();
+    if (isNil(bounds)) return;
     console.log({ bounds });
 
-    vpt[4] = clamp(Math.min(rightBorder, 0), nextTranslateX, 0);
-    vpt[5] = clamp(Math.min(bottomBorder, 0), nextTranslateY, 0);
+    // vpt[4] = clamp(Math.min(rightBorder, 0), nextTranslateX, 0);
+    // vpt[5] = clamp(Math.min(bottomBorder, 0), nextTranslateY, 0);
+
+    vpt[4] = clamp(Math.min(bounds.right, 0), nextTranslateX, bounds.left);
+    vpt[5] = clamp(Math.min(bounds.bottom, 0), nextTranslateY, bounds.top);
 
     console.log(vpt);
     this.canvas.requestRenderAll();
