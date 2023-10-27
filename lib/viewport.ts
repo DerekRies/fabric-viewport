@@ -211,28 +211,21 @@ export class Viewport {
   private calculatePageAreaMinMaxes(): BBox | undefined {
     if (isNil(this.canvas)) return;
     const zoom = this.canvas.getZoom();
-    if (
-      isNil(this.pageAreaTarget) ||
-      isNil(this.pageAreaTarget.width) ||
-      isNil(this.pageAreaTarget.height)
-    )
-      return;
 
     // TODO: Move to a getPageArea that is smart enough to know
     // if the pageArea is fully contained within the viewport, to use
     // the world for clamping calculations instead
 
     const pageArea = this.getPageArea();
-
-    const pageAreaWidth =
-      this.pageAreaTarget.width + this.pageAreaTargetPadding.x;
-    const pageAreaHeight =
-      this.pageAreaTarget.height + this.pageAreaTargetPadding.y;
-    if (isNil(this.pageAreaTarget.left) || isNil(this.pageAreaTarget.top))
+    if (isNil(pageArea) || isNil(pageArea.width) || isNil(pageArea.height))
       return;
 
-    const offsetLeft = this.pageAreaTarget.left * zoom;
-    const offsetTop = this.pageAreaTarget.top * zoom;
+    const pageAreaWidth = pageArea.width + this.pageAreaTargetPadding.x;
+    const pageAreaHeight = pageArea.height + this.pageAreaTargetPadding.y;
+    if (isNil(pageArea.left) || isNil(pageArea.top)) return;
+
+    const offsetLeft = pageArea.left * zoom;
+    const offsetTop = pageArea.top * zoom;
 
     const rightBorder =
       -1 *
@@ -252,6 +245,7 @@ export class Viewport {
 
     const horizontalExcess = pageAreaWidth * zoom - this.screenWidth;
     const verticalExcess = pageAreaHeight * zoom - this.screenHeight;
+
     const leftBorder =
       rightBorder + horizontalExcess + this.pageAreaTargetPadding.x;
     const topBorder =

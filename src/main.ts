@@ -1,5 +1,6 @@
 import { Viewport } from "../lib";
 import { fabric } from "fabric";
+import { isNil } from "lodash";
 import "./styles.css";
 import documentImageUrl from "./download.jpeg";
 
@@ -33,9 +34,70 @@ const image = fabric.Image.fromURL(documentImageUrl, (img) => {
     center: true,
   });
 
-  viewport.setZoom(0.85);
-  // viewport.fitToWorld();
+  let draggingContext = {
+    isDragging: false,
+    lastX: 0,
+    lastY: 0,
+  };
+
+  // viewport.setZoom(2);
+  viewport.fitToWorld();
   viewport.setPageAreaTarget(img, { paddingX: 20, paddingY: 20 });
+
+  const noNoObject = new fabric.Circle({
+    fill: "red",
+    radius: 200,
+    left: 500,
+    top: 500,
+  });
+  const noNoObject2 = new fabric.Circle({
+    fill: "red",
+    radius: 50,
+    left: 900,
+    top: 870,
+  });
+  // noNoObject.lockMovementX = true;
+  // noNoObject.lockMovementY = true;
+  canvas.add(noNoObject);
+  canvas.add(noNoObject2);
+
+  canvas.on("object:moving", (e) => {
+    const obj = e.target;
+    if (isNil(obj)) return;
+
+    const objCoords = obj.aCoords;
+    const imgBounds = img.aCoords;
+    if (isNil(objCoords) || isNil(objCoords.tl.x) || isNil(imgBounds)) return;
+
+    if (objCoords.tl.x < imgBounds.tl.x) {
+      obj.left = imgBounds.tl.x;
+      obj.lockMovementX = true;
+    }
+    // console.log("object:moving", e);
+  });
+
+  canvas.on("object:modified", (e) => {
+    console.log("object:modified", e);
+    const obj = e.target;
+    if (isNil(obj)) return;
+
+    obj.lockMovementX = false;
+    obj.lockMovementY = false;
+  });
+
+  canvas.on("mouse:down", (e) => {
+    if (isNil(canvas.getActiveObject())) return;
+
+    draggingContext.isDragging = true;
+    // console.log("mouse:down", e);
+    console.log(canvas.getActiveObject());
+  });
+
+  canvas.on("mouse:move:before", (e) => {});
+
+  canvas.on("before:transform", (e) => {
+    console.log("before:transform", e);
+  });
 
   // viewport.setZoom(0.65);
 
