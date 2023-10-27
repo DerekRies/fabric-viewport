@@ -12,7 +12,7 @@ const canvasEl = document.createElement("canvas");
 canvasContainerEl?.appendChild(canvasEl);
 
 const rawCanvas = new fabric.Canvas(canvasEl, {
-  backgroundColor: "white",
+  backgroundColor: "#f1f1f1",
 });
 const viewport = new Viewport({
   screenHeight: CANVAS_HEIGHT,
@@ -20,26 +20,28 @@ const viewport = new Viewport({
   worldHeight: 2000,
   worldWidth: 6000,
   scrollbars: true,
+  worldBackgroundColor: "#f1f1f1",
 });
 const canvas = viewport.install(rawCanvas);
 const image = fabric.Image.fromURL(documentImageUrl, (img) => {
   img.selectable = false;
   canvas.add(img);
   viewport.resizeWorldToFit(img, {
-    paddingX: 20,
-    paddingY: 50,
+    // paddingX: 20,
+    // paddingY: 50,
     maintainAspectRatio: true,
     center: true,
   });
 
-  viewport.fitToWorld();
-  viewport.setZoom(0.65);
-  viewport.centerToWorld({ vertical: false });
+  viewport.setZoom(0.85);
+  // viewport.fitToWorld();
+  viewport.setPageAreaTarget(img, { paddingX: 20, paddingY: 20 });
+
+  // viewport.setZoom(0.65);
 
   // I essentially want the viewport to use the image instead
   // of the world to calculate the scrollable area and limit
   // panning to its rectangle.
-  viewport.setPageAreaTarget(img, { paddingX: 20, paddingY: 20 });
 });
 
 // Should zoom / translate the viewport such that the target

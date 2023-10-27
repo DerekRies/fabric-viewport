@@ -10,6 +10,7 @@ export interface ViewportOptions {
   screenHeight: number;
   worldWidth: number;
   worldHeight: number;
+  worldBackgroundColor?: string;
   scrollbars?: boolean;
 }
 
@@ -25,6 +26,7 @@ export class Viewport {
   private screenHeight: number;
   private worldWidth: number;
   private worldHeight: number;
+  private worldBackgroundColor: string;
   private isInstalled: boolean;
   private showingScrollbars: boolean;
 
@@ -58,13 +60,14 @@ export class Viewport {
    * how scrollbars are calculated
    */
   private pageAreaTarget: fabric.Object | null = null;
-  private pageAreaTargetPadding = { x: 0, y: 0 };
+  private pageAreaTargetPadding = { x: 50, y: 50 };
 
   constructor({
     screenHeight,
     screenWidth,
     worldHeight,
     worldWidth,
+    worldBackgroundColor = "#f1f1f1",
     scrollbars = true,
   }: ViewportOptions) {
     this.screenHeight = screenHeight;
@@ -73,6 +76,7 @@ export class Viewport {
     this.worldHeight = worldHeight;
     this.showingScrollbars = scrollbars;
     this.isInstalled = false;
+    this.worldBackgroundColor = worldBackgroundColor;
     document.addEventListener("mousemove", this.handleGlobalMouseMove);
     document.addEventListener("mouseup", this.handleGlobalMouseUp);
   }
@@ -89,7 +93,7 @@ export class Viewport {
       width: this.worldWidth,
       height: this.worldHeight,
       selectable: false,
-      fill: "#f1f1f1",
+      fill: this.worldBackgroundColor,
       data: {
         fabricViewport: {
           type: "world",
@@ -159,6 +163,44 @@ export class Viewport {
   };
 
   /**
+   * Check to see if a fabric object is fully contained within the viewport
+   * @param obj
+   */
+  public isFullyContained(obj: fabric.Object): boolean {
+    // We don't actually want to know if it's fully contained. We want to
+    // know if the larger of the two axes (width vs height) fully contains
+    // the target obj
+    if (
+      isNil(obj.left) ||
+      isNil(obj.width) ||
+      isNil(obj.top) ||
+      isNil(obj.height)
+    )
+      return false;
+
+    const viewportBounds = this.calcViewportBoundaries();
+    if (viewportBounds.width > viewportBounds.height) {
+      return (
+        obj.left >= viewportBounds.left && obj.width <= viewportBounds.width
+      );
+    } else {
+      return (
+        obj.top >= viewportBounds.top && obj.height <= viewportBounds.height
+      );
+    }
+  }
+
+  private getPageArea(): fabric.Object | null {
+    if (isNil(this.pageAreaTarget)) return null;
+
+    if (this.isFullyContained(this.pageAreaTarget)) {
+      return this.fabricWorldObject ?? null;
+    }
+
+    return this.pageAreaTarget;
+  }
+
+  /**
    * The name is a little confusing. We're not really returning
    * the boundaries of the page area in world or screen coordinates.
    *
@@ -166,19 +208,27 @@ export class Viewport {
    * for translations such that the viewport can't be panned outside
    * the page area.
    */
-  private calculatePageAreaBoundaries(): BBox | undefined {
+  private calculatePageAreaMinMaxes(): BBox | undefined {
     if (isNil(this.canvas)) return;
     const zoom = this.canvas.getZoom();
-    if (isNil(this.pageAreaTarget)) return;
-
-    const pageAreaWidth = this.pageAreaTarget.width;
-    const pageAreaHeight = this.pageAreaTarget.height;
     if (
-      isNil(pageAreaHeight) ||
-      isNil(pageAreaWidth) ||
-      isNil(this.pageAreaTarget.left) ||
-      isNil(this.pageAreaTarget.top)
+      isNil(this.pageAreaTarget) ||
+      isNil(this.pageAreaTarget.width) ||
+      isNil(this.pageAreaTarget.height)
     )
+      return;
+
+    // TODO: Move to a getPageArea that is smart enough to know
+    // if the pageArea is fully contained within the viewport, to use
+    // the world for clamping calculations instead
+
+    const pageArea = this.getPageArea();
+
+    const pageAreaWidth =
+      this.pageAreaTarget.width + this.pageAreaTargetPadding.x;
+    const pageAreaHeight =
+      this.pageAreaTarget.height + this.pageAreaTargetPadding.y;
+    if (isNil(this.pageAreaTarget.left) || isNil(this.pageAreaTarget.top))
       return;
 
     const offsetLeft = this.pageAreaTarget.left * zoom;
@@ -202,8 +252,10 @@ export class Viewport {
 
     const horizontalExcess = pageAreaWidth * zoom - this.screenWidth;
     const verticalExcess = pageAreaHeight * zoom - this.screenHeight;
-    const leftBorder = rightBorder + horizontalExcess;
-    const topBorder = bottomBorder + verticalExcess;
+    const leftBorder =
+      rightBorder + horizontalExcess + this.pageAreaTargetPadding.x;
+    const topBorder =
+      bottomBorder + verticalExcess + this.pageAreaTargetPadding.y;
 
     return {
       right: rightBorder,
@@ -222,30 +274,14 @@ export class Viewport {
     const nextTranslateX = vpt[4] + deltaX;
     const nextTranslateY = vpt[5] + deltaY;
 
-    const rightBorder =
-      -1 *
-      (this.worldWidth -
-        this.screenWidth +
-        this.worldWidth * zoom -
-        this.worldWidth);
-    const bottomBorder =
-      -1 *
-      (this.worldHeight -
-        this.screenHeight +
-        this.worldHeight * zoom -
-        this.worldHeight);
-
-    const bounds = this.calculatePageAreaBoundaries();
+    const bounds = this.calculatePageAreaMinMaxes();
     if (isNil(bounds)) return;
-    console.log({ bounds });
-
-    // vpt[4] = clamp(Math.min(rightBorder, 0), nextTranslateX, 0);
-    // vpt[5] = clamp(Math.min(bottomBorder, 0), nextTranslateY, 0);
+    // console.log({ bounds });
 
     vpt[4] = clamp(Math.min(bounds.right, 0), nextTranslateX, bounds.left);
     vpt[5] = clamp(Math.min(bounds.bottom, 0), nextTranslateY, bounds.top);
 
-    console.log(vpt);
+    // console.log(vpt);
     this.canvas.requestRenderAll();
     this.calculateScrollbars();
   }
@@ -297,6 +333,21 @@ export class Viewport {
     this.calculateScrollbars(true);
   }
 
+  private getPageAreaTargetBounds():
+    | { top: number; left: number; height: number; width: number }
+    | undefined {
+    if (isNil(this.pageAreaTarget)) return;
+
+    const bounds = this.pageAreaTarget?.getBoundingRect(true);
+
+    return {
+      height: bounds.height + this.pageAreaTargetPadding.y * 2,
+      width: bounds.width + this.pageAreaTargetPadding.x * 2,
+      left: bounds.left - this.pageAreaTargetPadding.x,
+      top: bounds.top - this.pageAreaTargetPadding.y,
+    };
+  }
+
   private calculateScrollbars(recalcThumbSize = false): void {
     if (
       isNil(this.canvas) ||
@@ -304,20 +355,35 @@ export class Viewport {
       isNil(this.verticalScrollbarThumbEl) ||
       isNil(this.horizontalScrollbarThumbEl) ||
       isNil(this.horizontalScrollbarContainerEl) ||
-      isNil(this.verticalScrollbarContainerEl)
+      isNil(this.verticalScrollbarContainerEl) ||
+      isNil(this.pageAreaTarget)
     )
       return;
 
     const viewportBounds = this.calcViewportBoundaries();
-    const worldBounds = this.fabricWorldObject.getBoundingRect(true);
+    const pageAreaTargetBounds = this.getPageAreaTargetBounds();
+    if (isNil(pageAreaTargetBounds)) return;
 
-    const headRoom = viewportBounds.top - worldBounds.top;
-    const headRoomPct = headRoom / worldBounds.height;
-    const viewportVerticalPct = viewportBounds.height / worldBounds.height;
+    const headRoom = viewportBounds.top - pageAreaTargetBounds.top;
+    const headRoomPct = headRoom / pageAreaTargetBounds.height;
+    const viewportVerticalPct =
+      viewportBounds.height / pageAreaTargetBounds.height;
 
-    const leftSideRoom = viewportBounds.left - worldBounds.left;
-    const leftSideRoomPct = leftSideRoom / worldBounds.width;
-    const viewportHorizontalPct = viewportBounds.width / worldBounds.width;
+    const leftSideRoom = viewportBounds.left - pageAreaTargetBounds.left;
+    const leftSideRoomPct = leftSideRoom / pageAreaTargetBounds.width;
+    const viewportHorizontalPct =
+      viewportBounds.width / pageAreaTargetBounds.width;
+
+    // console.log({
+    //   viewportBounds,
+    //   pageAreaTargetBounds,
+    //   leftSideRoom,
+    //   leftSideRoomPct,
+    //   viewportHorizontalPct,
+    //   headRoom,
+    //   headRoomPct,
+    //   viewportVerticalPct,
+    // });
 
     if (recalcThumbSize) {
       if (viewportVerticalPct >= 1) {
@@ -540,6 +606,7 @@ export class Viewport {
    */
   setPageAreaTarget(obj: fabric.Object, opts: any) {
     this.pageAreaTarget = obj;
+    this.translate(0, 0);
     this.requestRenderAll();
   }
 
