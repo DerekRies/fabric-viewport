@@ -1,7 +1,7 @@
 /* eslint-disable no-param-reassign */
 /* eslint-disable lines-between-class-members */
 import { fabric } from "fabric";
-import { clamp } from "./utils";
+import { internalClamp } from "./utils";
 import { isNil } from "lodash";
 import "./scrollbar.css";
 
@@ -272,8 +272,16 @@ export class Viewport {
     if (isNil(bounds)) return;
     // console.log({ bounds });
 
-    vpt[4] = clamp(Math.min(bounds.right, 0), nextTranslateX, bounds.left);
-    vpt[5] = clamp(Math.min(bounds.bottom, 0), nextTranslateY, bounds.top);
+    vpt[4] = internalClamp(
+      Math.min(bounds.right, 0),
+      nextTranslateX,
+      bounds.left
+    );
+    vpt[5] = internalClamp(
+      Math.min(bounds.bottom, 0),
+      nextTranslateY,
+      bounds.top
+    );
 
     // console.log(vpt);
     this.canvas.requestRenderAll();
