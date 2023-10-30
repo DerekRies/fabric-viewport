@@ -1,6 +1,6 @@
-import { Viewport } from "../lib";
+import { Viewport, InteractionManager } from "../lib";
 import { fabric } from "fabric";
-import { isNil } from "lodash";
+import { clamp, isNil } from "lodash";
 import "./styles.css";
 import documentImageUrl from "./download.jpeg";
 
@@ -24,6 +24,7 @@ const viewport = new Viewport({
   worldBackgroundColor: "#f1f1f1",
 });
 const canvas = viewport.install(rawCanvas);
+const interactionManager = new InteractionManager(canvas);
 const image = fabric.Image.fromURL(documentImageUrl, (img) => {
   img.selectable = false;
   canvas.add(img);
@@ -33,12 +34,7 @@ const image = fabric.Image.fromURL(documentImageUrl, (img) => {
     maintainAspectRatio: true,
     center: true,
   });
-
-  let draggingContext = {
-    isDragging: false,
-    lastX: 0,
-    lastY: 0,
-  };
+  interactionManager.constrainInteractions(img);
 
   // viewport.setZoom(2);
   viewport.fitToWorld();
@@ -49,66 +45,18 @@ const image = fabric.Image.fromURL(documentImageUrl, (img) => {
     radius: 200,
     left: 500,
     top: 500,
+    lockScalingFlip: true,
   });
   const noNoObject2 = new fabric.Circle({
     fill: "red",
     radius: 50,
     left: 900,
     top: 870,
+    lockScalingFlip: true,
   });
-  // noNoObject.lockMovementX = true;
-  // noNoObject.lockMovementY = true;
   canvas.add(noNoObject);
   canvas.add(noNoObject2);
-
-  canvas.on("object:moving", (e) => {
-    const obj = e.target;
-    if (isNil(obj)) return;
-
-    const objCoords = obj.aCoords;
-    const imgBounds = img.aCoords;
-    if (isNil(objCoords) || isNil(objCoords.tl.x) || isNil(imgBounds)) return;
-
-    if (objCoords.tl.x < imgBounds.tl.x) {
-      obj.left = imgBounds.tl.x;
-      obj.lockMovementX = true;
-    }
-    // console.log("object:moving", e);
-  });
-
-  canvas.on("object:modified", (e) => {
-    console.log("object:modified", e);
-    const obj = e.target;
-    if (isNil(obj)) return;
-
-    obj.lockMovementX = false;
-    obj.lockMovementY = false;
-  });
-
-  canvas.on("mouse:down", (e) => {
-    if (isNil(canvas.getActiveObject())) return;
-
-    draggingContext.isDragging = true;
-    // console.log("mouse:down", e);
-    console.log(canvas.getActiveObject());
-  });
-
-  canvas.on("mouse:move:before", (e) => {});
-
-  canvas.on("before:transform", (e) => {
-    console.log("before:transform", e);
-  });
-
-  // viewport.setZoom(0.65);
-
-  // I essentially want the viewport to use the image instead
-  // of the world to calculate the scrollable area and limit
-  // panning to its rectangle.
 });
-
-// Should zoom / translate the viewport such that the target
-// object fits just right within the viewport.
-// viewport.fit(doc);
 
 console.log(canvas._objects);
 
