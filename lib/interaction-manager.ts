@@ -46,8 +46,8 @@ export class InteractionManager {
       newTop < targetBounds.tl.y ||
       newTop + obj.getScaledHeight() > targetBounds.bl.y
     ) {
+      clampWithin(obj, this.targetObj, { x: newLeft, y: newTop });
     }
-    clampWithin(obj, this.targetObj, { x: newLeft, y: newTop });
   };
 
   /**

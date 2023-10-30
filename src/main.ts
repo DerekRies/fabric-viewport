@@ -43,7 +43,7 @@ const image = fabric.Image.fromURL(documentImageUrl, (img) => {
   const noNoObject = new fabric.Circle({
     fill: "red",
     radius: 200,
-    left: 500,
+    left: 700,
     top: 500,
     lockScalingFlip: true,
   });

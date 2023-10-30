@@ -2,7 +2,7 @@
 /* eslint-disable lines-between-class-members */
 import { fabric } from "fabric";
 import { internalClamp } from "./utils";
-import { isNil } from "lodash";
+import { clamp, isNil } from "lodash";
 import "./scrollbar.css";
 
 export interface ViewportOptions {
@@ -43,12 +43,7 @@ export class Viewport {
   private zoom = 1;
 
   private scrollFactor = 0.5;
-
-  private draggingContext = {
-    isDragging: false,
-    lastX: 0,
-    lastY: 0,
-  };
+  private zoomFactor = 0.005;
 
   private verticalScrollDraggingContext = {
     isDragging: false,
@@ -103,40 +98,45 @@ export class Viewport {
     this.pageAreaTarget = this.fabricWorldObject;
     canvas.add(this.fabricWorldObject);
     this.injectScrollbars();
-    canvas.on("mouse:down", this.handleMouseDown);
-    canvas.on("mouse:move", this.handleMouseMove);
-    canvas.on("mouse:up", this.handleMouseUp);
     canvas.on("mouse:wheel", this.handleMouseWheel);
   }
 
   private handleMouseWheel = (opt: fabric.IEvent<WheelEvent>): void => {
+    if (opt.e.ctrlKey) {
+      opt.e.preventDefault();
+      console.log(opt);
+
+      // if deltaY is negative, we're zooming in.
+      // if deltaY is positive, we're zooming out.
+      // zoomToPoint makes sense with zooming in on the absolute pointer coords
+      // but how does zoomOut work? Are we zooming out with that point centered?
+      const zoom = this.canvas?.getZoom();
+      if (isNil(zoom) || isNil(opt.pointer)) return;
+
+      this.zoomToPoint(
+        zoom + -1 * opt.e.deltaY * this.zoomFactor,
+        // opt.absolutePointer
+        opt.pointer
+      );
+      return;
+    }
+
     this.translate(
       -1 * opt.e.deltaX * this.scrollFactor,
       -1 * opt.e.deltaY * this.scrollFactor
     );
   };
 
-  private handleMouseDown = (opt: fabric.IEvent<MouseEvent>): void => {
-    this.draggingContext.isDragging = true;
-    this.draggingContext.lastX = opt.e.clientX;
-    this.draggingContext.lastY = opt.e.clientY;
-  };
+  zoomToPoint(zoomLevel: number, point: fabric.IPoint) {
+    // TODO go through the not-yet-created internal
+    // set transformation matrix method which should handle
+    // relevant clamping logic shared between translate
+    // and any other viewport method.
+    this.canvas?.zoomToPoint(point, zoomLevel);
 
-  private handleMouseMove = (opt: fabric.IEvent<MouseEvent>): void => {
-    if (!this.draggingContext.isDragging || !this.canvas) return;
-    if (!opt.e.ctrlKey) return;
-    this.canvas.selection = false;
-    opt.e.stopPropagation();
-    opt.e.preventDefault();
-
-    const deltaX = opt.e.clientX - this.draggingContext.lastX;
-    const deltaY = opt.e.clientY - this.draggingContext.lastY;
-
-    this.translate(deltaX, deltaY);
-
-    this.draggingContext.lastX = opt.e.clientX;
-    this.draggingContext.lastY = opt.e.clientY;
-  };
+    console.log(this.canvas?.getZoom());
+    this.requestRenderAll();
+  }
 
   private handleScrollThumbMouseDown = (e: MouseEvent): void => {
     // console.log('Starting scrollbar drag');
@@ -264,38 +264,22 @@ export class Viewport {
     const vpt = this.canvas.viewportTransform;
     if (isNil(vpt)) return;
 
-    const zoom = this.canvas.getZoom();
+    // TODO: Move to common function like setTransform
+    // which will handle clamping logic, and be used by
+    // translate AND zoom (and any other transform related
+    // viewport methods)
     const nextTranslateX = vpt[4] + deltaX;
     const nextTranslateY = vpt[5] + deltaY;
 
     const bounds = this.calculatePageAreaMinMaxes();
     if (isNil(bounds)) return;
-    // console.log({ bounds });
 
-    vpt[4] = internalClamp(
-      Math.min(bounds.right, 0),
-      nextTranslateX,
-      bounds.left
-    );
-    vpt[5] = internalClamp(
-      Math.min(bounds.bottom, 0),
-      nextTranslateY,
-      bounds.top
-    );
+    vpt[4] = clamp(nextTranslateX, Math.min(bounds.right, 0), bounds.left);
+    vpt[5] = clamp(nextTranslateY, Math.min(bounds.bottom, 0), bounds.top);
 
-    // console.log(vpt);
     this.canvas.requestRenderAll();
     this.calculateScrollbars();
   }
-
-  private handleMouseUp = (_opt: fabric.IEvent<MouseEvent>): void => {
-    if (isNil(this.canvas)) return;
-
-    if (this.draggingContext.isDragging) {
-      this.canvas.selection = true;
-    }
-    this.draggingContext.isDragging = false;
-  };
 
   private injectScrollbars(): void {
     const containerEl = this.canvas?.getElement().parentElement;
