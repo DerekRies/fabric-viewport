@@ -21,6 +21,15 @@ export interface BBox {
   bottom: number;
 }
 
+export type TransformationMatrix2D = [
+  number,
+  number,
+  number,
+  number,
+  number,
+  number
+];
+
 export class Viewport {
   private screenWidth: number;
   private screenHeight: number;
@@ -40,7 +49,6 @@ export class Viewport {
 
   private scrollbarHeight = 0;
   private scrollbarWidth = 0;
-  private zoom = 1;
 
   private scrollFactor = 0.5;
   private zoomFactor = 0.005;
@@ -106,18 +114,10 @@ export class Viewport {
       opt.e.preventDefault();
       console.log(opt);
 
-      // if deltaY is negative, we're zooming in.
-      // if deltaY is positive, we're zooming out.
-      // zoomToPoint makes sense with zooming in on the absolute pointer coords
-      // but how does zoomOut work? Are we zooming out with that point centered?
       const zoom = this.canvas?.getZoom();
       if (isNil(zoom) || isNil(opt.pointer)) return;
 
-      this.zoomToPoint(
-        zoom + -1 * opt.e.deltaY * this.zoomFactor,
-        // opt.absolutePointer
-        opt.pointer
-      );
+      this.zoomToPoint(zoom + -1 * opt.e.deltaY * this.zoomFactor, opt.pointer);
       return;
     }
 
@@ -208,13 +208,9 @@ export class Viewport {
    * for translations such that the viewport can't be panned outside
    * the page area.
    */
-  private calculatePageAreaMinMaxes(): BBox | undefined {
+  private calculatePageAreaMinMaxes(zoom?: number): BBox | undefined {
     if (isNil(this.canvas)) return;
-    const zoom = this.canvas.getZoom();
-
-    // TODO: Move to a getPageArea that is smart enough to know
-    // if the pageArea is fully contained within the viewport, to use
-    // the world for clamping calculations instead
+    const actualZoom = zoom ?? this.canvas.getZoom();
 
     const pageArea = this.getPageArea();
     if (isNil(pageArea) || isNil(pageArea.width) || isNil(pageArea.height))
@@ -224,14 +220,14 @@ export class Viewport {
     const pageAreaHeight = pageArea.height + this.pageAreaTargetPadding.y;
     if (isNil(pageArea.left) || isNil(pageArea.top)) return;
 
-    const offsetLeft = pageArea.left * zoom;
-    const offsetTop = pageArea.top * zoom;
+    const offsetLeft = pageArea.left * actualZoom;
+    const offsetTop = pageArea.top * actualZoom;
 
     const rightBorder =
       -1 *
         (pageAreaWidth -
           this.screenWidth +
-          pageAreaWidth * zoom -
+          pageAreaWidth * actualZoom -
           pageAreaWidth) -
       offsetLeft;
 
@@ -239,12 +235,12 @@ export class Viewport {
       -1 *
         (pageAreaHeight -
           this.screenHeight +
-          pageAreaHeight * zoom -
+          pageAreaHeight * actualZoom -
           pageAreaHeight) -
       offsetTop;
 
-    const horizontalExcess = pageAreaWidth * zoom - this.screenWidth;
-    const verticalExcess = pageAreaHeight * zoom - this.screenHeight;
+    const horizontalExcess = pageAreaWidth * actualZoom - this.screenWidth;
+    const verticalExcess = pageAreaHeight * actualZoom - this.screenHeight;
 
     const leftBorder =
       rightBorder + horizontalExcess + this.pageAreaTargetPadding.x;
@@ -264,21 +260,58 @@ export class Viewport {
     const vpt = this.canvas.viewportTransform;
     if (isNil(vpt)) return;
 
-    // TODO: Move to common function like setTransform
-    // which will handle clamping logic, and be used by
-    // translate AND zoom (and any other transform related
-    // viewport methods)
     const nextTranslateX = vpt[4] + deltaX;
     const nextTranslateY = vpt[5] + deltaY;
 
+    this.setTransform(
+      vpt[0],
+      vpt[1],
+      vpt[2],
+      vpt[3],
+      nextTranslateX,
+      nextTranslateY
+    );
+  }
+
+  setTransform(
+    a: number,
+    b: number,
+    c: number,
+    d: number,
+    translateX: number,
+    translateY: number
+  ) {
     const bounds = this.calculatePageAreaMinMaxes();
     if (isNil(bounds)) return;
 
-    vpt[4] = clamp(nextTranslateX, Math.min(bounds.right, 0), bounds.left);
-    vpt[5] = clamp(nextTranslateY, Math.min(bounds.bottom, 0), bounds.top);
-
-    this.canvas.requestRenderAll();
+    const nextTranslateX = clamp(
+      translateX,
+      Math.min(bounds.right, 0),
+      bounds.left
+    );
+    const nextTranslateY = clamp(
+      translateY,
+      Math.min(bounds.bottom, 0),
+      bounds.top
+    );
+    this.canvas?.setViewportTransform([
+      a,
+      b,
+      c,
+      d,
+      nextTranslateX,
+      nextTranslateY,
+    ]);
+    this.canvas?.requestRenderAll();
     this.calculateScrollbars();
+  }
+
+  getViewportTransform(): TransformationMatrix2D {
+    if (isNil(this.canvas) || isNil(this.canvas.viewportTransform)) {
+      throw new Error("No transformation matrix found for canvas");
+    }
+
+    return [...this.canvas?.viewportTransform] as TransformationMatrix2D;
   }
 
   private injectScrollbars(): void {
@@ -324,7 +357,9 @@ export class Viewport {
     | undefined {
     if (isNil(this.pageAreaTarget)) return;
 
-    const bounds = this.pageAreaTarget?.getBoundingRect(true);
+    const target = this.getPageArea();
+    if (isNil(target)) return;
+    const bounds = target.getBoundingRect(true);
 
     return {
       height: bounds.height + this.pageAreaTargetPadding.y * 2,
