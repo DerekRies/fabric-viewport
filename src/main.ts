@@ -21,24 +21,20 @@ const viewport = new Viewport({
   worldHeight: 2000,
   worldWidth: 6000,
   scrollbars: true,
-  worldBackgroundColor: "#f1f1f1",
+  panningEnabledWhileHoldingSpace: true,
+  dynamicMinMaxZoom: [0.5, 5],
 });
 const canvas = viewport.install(rawCanvas);
 const interactionManager = new InteractionManager(canvas);
 const image = fabric.Image.fromURL(documentImageUrl, (img) => {
   img.selectable = false;
   canvas.add(img);
-  viewport.resizeWorldToFit(img, {
-    // paddingX: 20,
-    // paddingY: 50,
-    maintainAspectRatio: true,
-    center: true,
-  });
+  viewport.resizeWorldToFit(img);
   interactionManager.constrainInteractions(img);
 
-  viewport.setZoom(1);
-  // viewport.fitToWorld();
-  viewport.setPageAreaTarget(img, { paddingX: 20, paddingY: 20 });
+  // viewport.setZoom(1);
+  viewport.fitToWorld();
+  viewport.setPageAreaTarget(img);
 
   const noNoObject = new fabric.Circle({
     fill: "red",

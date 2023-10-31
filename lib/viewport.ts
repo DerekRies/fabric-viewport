@@ -13,6 +13,8 @@ export interface ViewportOptions {
   scrollbars?: boolean;
   minZoomLevel?: number;
   maxZoomLevel?: number;
+  panningEnabledWhileHoldingSpace?: boolean;
+  dynamicMinMaxZoom?: [number, number];
 }
 
 export interface BBox {
@@ -38,7 +40,7 @@ export class Viewport {
   private screenHeight: number;
   private worldWidth: number;
   private worldHeight: number;
-  private worldBackgroundColor: string;
+  private worldBackgroundColor: string | undefined;
   private isInstalled: boolean;
   private showingScrollbars: boolean;
 
@@ -61,6 +63,9 @@ export class Viewport {
 
   private minZoomLevel: number;
   private maxZoomLevel: number;
+  private dynamicMinMaxZoomScales: [number, number] | undefined;
+
+  private panningEnabledWhileHoldingSpace = false;
 
   private verticalScrollDraggingContext = {
     isDragging: false,
@@ -79,17 +84,18 @@ export class Viewport {
    * how scrollbars are calculated
    */
   private pageAreaTarget: fabric.Object | null = null;
-  private pageAreaTargetPadding = { x: 50, y: 50 };
 
   constructor({
     screenHeight,
     screenWidth,
     worldHeight,
     worldWidth,
-    worldBackgroundColor = "#f1f1f1",
+    worldBackgroundColor,
     scrollbars = true,
-    minZoomLevel = 0.37,
+    panningEnabledWhileHoldingSpace = false,
+    minZoomLevel = 0.25,
     maxZoomLevel = 3,
+    dynamicMinMaxZoom,
   }: ViewportOptions) {
     this.screenHeight = screenHeight;
     this.screenWidth = screenWidth;
@@ -100,6 +106,8 @@ export class Viewport {
     this.worldBackgroundColor = worldBackgroundColor;
     this.minZoomLevel = minZoomLevel;
     this.maxZoomLevel = maxZoomLevel;
+    this.panningEnabledWhileHoldingSpace = panningEnabledWhileHoldingSpace;
+    this.dynamicMinMaxZoomScales = dynamicMinMaxZoom;
     document.addEventListener("mousemove", this.handleGlobalMouseMove);
     document.addEventListener("mouseup", this.handleGlobalMouseUp);
     document.addEventListener("keydown", this.handleKeyDown);
@@ -135,24 +143,27 @@ export class Viewport {
   }
 
   private handleKeyDown = (e: KeyboardEvent) => {
-    if (e.key === " ") {
-      this.draggingContext.spacebarDown = true;
-      if (isNil(this.canvas)) return;
-      this.canvas.interactive = false;
-      this.canvas.selection = false;
-    }
+    if (!this.panningEnabledWhileHoldingSpace) return;
+    if (e.key !== " ") return;
+    if (isNil(this.canvas)) return;
+
+    this.draggingContext.spacebarDown = true;
+    this.canvas.interactive = false;
+    this.canvas.selection = false;
   };
 
   private handleKeyUp = (e: KeyboardEvent) => {
-    if (e.key === " ") {
-      this.draggingContext.spacebarDown = false;
-      if (isNil(this.canvas)) return;
-      this.canvas.interactive = true;
-      this.canvas.selection = true;
-    }
+    if (!this.panningEnabledWhileHoldingSpace) return;
+    if (e.key !== " ") return;
+    if (isNil(this.canvas)) return;
+
+    this.draggingContext.spacebarDown = false;
+    this.canvas.interactive = true;
+    this.canvas.selection = true;
   };
 
   private handleMouseDown = (e: fabric.IEvent<MouseEvent>) => {
+    if (!this.panningEnabledWhileHoldingSpace) return;
     if (!this.draggingContext.spacebarDown) return;
     this.draggingContext.isDragging = true;
     this.draggingContext.lastX = e.e.clientX;
@@ -160,6 +171,7 @@ export class Viewport {
   };
 
   private handleMouseMove = (e: fabric.IEvent<MouseEvent>) => {
+    if (!this.panningEnabledWhileHoldingSpace) return;
     if (!this.draggingContext.isDragging || !this.draggingContext.spacebarDown)
       return;
 
@@ -174,6 +186,7 @@ export class Viewport {
   };
 
   private handleMouseUp = (e: fabric.IEvent<MouseEvent>) => {
+    if (!this.panningEnabledWhileHoldingSpace) return;
     this.draggingContext.isDragging = false;
   };
 
@@ -275,8 +288,8 @@ export class Viewport {
     if (isNil(pageArea) || isNil(pageArea.width) || isNil(pageArea.height))
       return;
 
-    const pageAreaWidth = pageArea.width + this.pageAreaTargetPadding.x;
-    const pageAreaHeight = pageArea.height + this.pageAreaTargetPadding.y;
+    const pageAreaWidth = pageArea.width;
+    const pageAreaHeight = pageArea.height;
     if (isNil(pageArea.left) || isNil(pageArea.top)) return;
 
     const offsetLeft = pageArea.left * actualZoom;
@@ -308,15 +321,15 @@ export class Viewport {
       leftBorder = (this.screenWidth - this.worldWidth * actualZoom) / 2;
       rightBorder = leftBorder;
     } else {
-      leftBorder =
-        rightBorder + horizontalExcess + this.pageAreaTargetPadding.x;
+      leftBorder = rightBorder + horizontalExcess;
     }
 
     if (verticalExcess <= 0) {
       topBorder = (this.screenHeight - this.worldHeight * actualZoom) / 2;
       bottomBorder = topBorder;
+      console.log({ topBorder, bottomBorder });
     } else {
-      topBorder = bottomBorder + verticalExcess + this.pageAreaTargetPadding.y;
+      topBorder = bottomBorder + verticalExcess;
     }
 
     return {
@@ -435,10 +448,10 @@ export class Viewport {
     const bounds = target.getBoundingRect(true);
 
     return {
-      height: bounds.height + this.pageAreaTargetPadding.y * 2,
-      width: bounds.width + this.pageAreaTargetPadding.x * 2,
-      left: bounds.left - this.pageAreaTargetPadding.x,
-      top: bounds.top - this.pageAreaTargetPadding.y,
+      height: bounds.height,
+      width: bounds.width,
+      left: bounds.left,
+      top: bounds.top,
     };
   }
 
@@ -548,10 +561,7 @@ export class Viewport {
    * @param targetObj
    * @param options
    */
-  resizeWorldToFit(
-    targetObj: fabric.Object,
-    options?: Partial<FitOptions>
-  ): void {
+  resizeWorldToFit(targetObj: fabric.Object): void {
     if (
       isNil(this.fabricWorldObject) ||
       isNil(targetObj.top) ||
@@ -560,18 +570,9 @@ export class Viewport {
     )
       return;
 
-    const actualOptions: FitOptions = {
-      paddingX: 0,
-      paddingY: 0,
-      maintainAspectRatio: true,
-      center: true,
-      ...options,
-    };
     const objBounds = targetObj.getBoundingRect();
     const viewportAspectRatio = this.screenWidth / this.screenHeight;
-    const objAspectRatio =
-      (objBounds.width + actualOptions.paddingX) /
-      (objBounds.height + actualOptions.paddingY);
+    const objAspectRatio = objBounds.width / objBounds.height;
 
     // When maintaining the viewport aspect ratio
     // our final world width / final world height
@@ -582,11 +583,11 @@ export class Viewport {
     let newWidth;
     if (objAspectRatio < 1) {
       // portrait
-      newHeight = objBounds.height + actualOptions.paddingY;
+      newHeight = objBounds.height;
       newWidth = newHeight * viewportAspectRatio;
     } else {
       // landscape
-      newWidth = objBounds.width + actualOptions.paddingX;
+      newWidth = objBounds.width;
       newHeight = newWidth / viewportAspectRatio;
     }
 
@@ -651,11 +652,14 @@ export class Viewport {
   }
 
   private updateZoomMinMax(): void {
+    if (isNil(this.dynamicMinMaxZoomScales)) return;
+    const [minScaler, maxScaler] = this.dynamicMinMaxZoomScales;
+
     const scaleX = this.screenWidth / this.worldWidth;
     const scaleY = this.screenHeight / this.worldHeight;
     const scaleFactor = Math.min(scaleX, scaleY);
-    this.minZoomLevel = scaleFactor;
-    this.maxZoomLevel = scaleFactor * 5;
+    this.minZoomLevel = scaleFactor * minScaler;
+    this.maxZoomLevel = scaleFactor * maxScaler;
   }
 
   /**
@@ -692,10 +696,9 @@ export class Viewport {
 
   /**
    *
-   * @param obj
    * @param opts
    */
-  setPageAreaTarget(obj: fabric.Object, opts: any) {
+  setPageAreaTarget(obj: fabric.Object) {
     this.pageAreaTarget = obj;
     this.translate(0, 0);
     this.updateZoomMinMax();
@@ -718,8 +721,6 @@ export interface CenterOptions {
 }
 
 export interface FitOptions {
-  paddingX: number;
-  paddingY: number;
   maintainAspectRatio: boolean;
   center: boolean;
 }
