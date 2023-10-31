@@ -215,7 +215,6 @@ export class Viewport {
   }
 
   private handleScrollThumbMouseDown = (e: MouseEvent): void => {
-    // console.log('Starting scrollbar drag');
     this.verticalScrollDraggingContext.isDragging = true;
     this.verticalScrollDraggingContext.lastY = e.clientY;
   };
@@ -327,7 +326,6 @@ export class Viewport {
     if (verticalExcess <= 0) {
       topBorder = (this.screenHeight - this.worldHeight * actualZoom) / 2;
       bottomBorder = topBorder;
-      console.log({ topBorder, bottomBorder });
     } else {
       topBorder = bottomBorder + verticalExcess;
     }
@@ -371,12 +369,14 @@ export class Viewport {
 
     const nextTranslateX = clamp(
       translateX,
-      Math.min(bounds.right, 0),
+      bounds.right,
+      // Math.min(bounds.right, 0),
       bounds.left
     );
     const nextTranslateY = clamp(
       translateY,
-      Math.min(bounds.bottom, 0),
+      bounds.bottom,
+      // Math.min(bounds.bottom, 0),
       bounds.top
     );
     this.canvas?.setViewportTransform([
@@ -389,7 +389,6 @@ export class Viewport {
     ]);
     this.canvas?.requestRenderAll();
     this.calculateScrollbars();
-    console.log(this.canvas?.viewportTransform);
   }
 
   getViewportTransform(): TransformationMatrix2D {
