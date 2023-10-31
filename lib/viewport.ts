@@ -1,7 +1,6 @@
 /* eslint-disable no-param-reassign */
 /* eslint-disable lines-between-class-members */
 import { fabric } from "fabric";
-import { internalClamp } from "./utils";
 import { clamp, isNil } from "lodash";
 import "./scrollbar.css";
 
@@ -12,6 +11,8 @@ export interface ViewportOptions {
   worldHeight: number;
   worldBackgroundColor?: string;
   scrollbars?: boolean;
+  minZoomLevel?: number;
+  maxZoomLevel?: number;
 }
 
 export interface BBox {
@@ -29,6 +30,8 @@ export type TransformationMatrix2D = [
   number,
   number
 ];
+
+const SCROLL_MAGIC_NUMBER = 2.1;
 
 export class Viewport {
   private screenWidth: number;
@@ -51,10 +54,23 @@ export class Viewport {
   private scrollbarWidth = 0;
 
   private scrollFactor = 0.5;
-  private zoomFactor = 0.005;
+  // We shouldn't use a linear scale on the zoom. Mac osx trackpads
+  // produce values like `0.123` while windows mouse wheels produce
+  // a value like `100`.
+  private zoomFactor = 0.001;
+
+  private minZoomLevel: number;
+  private maxZoomLevel: number;
 
   private verticalScrollDraggingContext = {
     isDragging: false,
+    lastY: 0,
+  };
+
+  private draggingContext = {
+    spacebarDown: false,
+    isDragging: false,
+    lastX: 0,
     lastY: 0,
   };
 
@@ -72,6 +88,8 @@ export class Viewport {
     worldWidth,
     worldBackgroundColor = "#f1f1f1",
     scrollbars = true,
+    minZoomLevel = 0.37,
+    maxZoomLevel = 3,
   }: ViewportOptions) {
     this.screenHeight = screenHeight;
     this.screenWidth = screenWidth;
@@ -80,8 +98,12 @@ export class Viewport {
     this.showingScrollbars = scrollbars;
     this.isInstalled = false;
     this.worldBackgroundColor = worldBackgroundColor;
+    this.minZoomLevel = minZoomLevel;
+    this.maxZoomLevel = maxZoomLevel;
     document.addEventListener("mousemove", this.handleGlobalMouseMove);
     document.addEventListener("mouseup", this.handleGlobalMouseUp);
+    document.addEventListener("keydown", this.handleKeyDown);
+    document.addEventListener("keyup", this.handleKeyUp);
   }
 
   private installFabricCanvas(canvas: fabric.Canvas): void {
@@ -107,13 +129,57 @@ export class Viewport {
     canvas.add(this.fabricWorldObject);
     this.injectScrollbars();
     canvas.on("mouse:wheel", this.handleMouseWheel);
+    canvas.on("mouse:down", this.handleMouseDown);
+    canvas.on("mouse:move", this.handleMouseMove);
+    canvas.on("mouse:up", this.handleMouseUp);
   }
+
+  private handleKeyDown = (e: KeyboardEvent) => {
+    if (e.key === " ") {
+      this.draggingContext.spacebarDown = true;
+      if (isNil(this.canvas)) return;
+      this.canvas.interactive = false;
+      this.canvas.selection = false;
+    }
+  };
+
+  private handleKeyUp = (e: KeyboardEvent) => {
+    if (e.key === " ") {
+      this.draggingContext.spacebarDown = false;
+      if (isNil(this.canvas)) return;
+      this.canvas.interactive = true;
+      this.canvas.selection = true;
+    }
+  };
+
+  private handleMouseDown = (e: fabric.IEvent<MouseEvent>) => {
+    if (!this.draggingContext.spacebarDown) return;
+    this.draggingContext.isDragging = true;
+    this.draggingContext.lastX = e.e.clientX;
+    this.draggingContext.lastY = e.e.clientY;
+  };
+
+  private handleMouseMove = (e: fabric.IEvent<MouseEvent>) => {
+    if (!this.draggingContext.isDragging || !this.draggingContext.spacebarDown)
+      return;
+
+    e.e.stopPropagation();
+    e.e.preventDefault();
+    const deltaX = e.e.clientX - this.draggingContext.lastX;
+    const deltaY = e.e.clientY - this.draggingContext.lastY;
+
+    this.translate(deltaX, deltaY);
+    this.draggingContext.lastX = e.e.clientX;
+    this.draggingContext.lastY = e.e.clientY;
+  };
+
+  private handleMouseUp = (e: fabric.IEvent<MouseEvent>) => {
+    this.draggingContext.isDragging = false;
+  };
 
   private handleMouseWheel = (opt: fabric.IEvent<WheelEvent>): void => {
     if (opt.e.ctrlKey) {
       opt.e.preventDefault();
-      console.log(opt);
-
       const zoom = this.canvas?.getZoom();
       if (isNil(zoom) || isNil(opt.pointer)) return;
 
@@ -128,14 +194,11 @@ export class Viewport {
   };
 
   zoomToPoint(zoomLevel: number, point: fabric.IPoint) {
-    // TODO go through the not-yet-created internal
-    // set transformation matrix method which should handle
-    // relevant clamping logic shared between translate
-    // and any other viewport method.
-    this.canvas?.zoomToPoint(point, zoomLevel);
-
-    console.log(this.canvas?.getZoom());
-    this.requestRenderAll();
+    const nextZoom = clamp(zoomLevel, this.minZoomLevel, this.maxZoomLevel);
+    this.canvas?.zoomToPoint(point, nextZoom);
+    const vpt = this.getViewportTransform();
+    this.setTransform(...vpt);
+    this.calculateScrollbars(true);
   }
 
   private handleScrollThumbMouseDown = (e: MouseEvent): void => {
@@ -149,13 +212,7 @@ export class Viewport {
 
     const deltaY = -1 * (e.clientY - this.verticalScrollDraggingContext.lastY);
     this.verticalScrollDraggingContext.lastY = e.clientY;
-    // 2.1 is the magic number where the scroll translation matches
-    // the apparent scrolling speed with the scrollbar.
-    // We could make this less magical by actually calculating the
-    // percent translation required to match the scrollbar exactly
-    // but then we've got two directions for the data behind our
-    // scrollbar to synchronize.
-    this.translate(0, deltaY * 2.1);
+    this.translate(0, deltaY * SCROLL_MAGIC_NUMBER);
   };
 
   private handleGlobalMouseUp = (): void => {
@@ -191,13 +248,15 @@ export class Viewport {
   }
 
   private getPageArea(): fabric.Object | null {
-    if (isNil(this.pageAreaTarget)) return null;
-
-    if (this.isFullyContained(this.pageAreaTarget)) {
-      return this.fabricWorldObject ?? null;
-    }
-
     return this.pageAreaTarget;
+    // return this.fabricWorldObject;
+    // if (isNil(this.pageAreaTarget)) return null;
+
+    // if (this.isFullyContained(this.pageAreaTarget)) {
+    //   return this.fabricWorldObject ?? null;
+    // }
+
+    // return this.pageAreaTarget;
   }
 
   /**
@@ -223,7 +282,7 @@ export class Viewport {
     const offsetLeft = pageArea.left * actualZoom;
     const offsetTop = pageArea.top * actualZoom;
 
-    const rightBorder =
+    let rightBorder =
       -1 *
         (pageAreaWidth -
           this.screenWidth +
@@ -231,7 +290,7 @@ export class Viewport {
           pageAreaWidth) -
       offsetLeft;
 
-    const bottomBorder =
+    let bottomBorder =
       -1 *
         (pageAreaHeight -
           this.screenHeight +
@@ -242,10 +301,23 @@ export class Viewport {
     const horizontalExcess = pageAreaWidth * actualZoom - this.screenWidth;
     const verticalExcess = pageAreaHeight * actualZoom - this.screenHeight;
 
-    const leftBorder =
-      rightBorder + horizontalExcess + this.pageAreaTargetPadding.x;
-    const topBorder =
-      bottomBorder + verticalExcess + this.pageAreaTargetPadding.y;
+    let leftBorder;
+    let topBorder;
+
+    if (horizontalExcess <= 0) {
+      leftBorder = (this.screenWidth - this.worldWidth * actualZoom) / 2;
+      rightBorder = leftBorder;
+    } else {
+      leftBorder =
+        rightBorder + horizontalExcess + this.pageAreaTargetPadding.x;
+    }
+
+    if (verticalExcess <= 0) {
+      topBorder = (this.screenHeight - this.worldHeight * actualZoom) / 2;
+      bottomBorder = topBorder;
+    } else {
+      topBorder = bottomBorder + verticalExcess + this.pageAreaTargetPadding.y;
+    }
 
     return {
       right: rightBorder,
@@ -304,6 +376,7 @@ export class Viewport {
     ]);
     this.canvas?.requestRenderAll();
     this.calculateScrollbars();
+    console.log(this.canvas?.viewportTransform);
   }
 
   getViewportTransform(): TransformationMatrix2D {
@@ -394,17 +467,6 @@ export class Viewport {
     const leftSideRoomPct = leftSideRoom / pageAreaTargetBounds.width;
     const viewportHorizontalPct =
       viewportBounds.width / pageAreaTargetBounds.width;
-
-    // console.log({
-    //   viewportBounds,
-    //   pageAreaTargetBounds,
-    //   leftSideRoom,
-    //   leftSideRoomPct,
-    //   viewportHorizontalPct,
-    //   headRoom,
-    //   headRoomPct,
-    //   viewportVerticalPct,
-    // });
 
     if (recalcThumbSize) {
       if (viewportVerticalPct >= 1) {
@@ -588,6 +650,14 @@ export class Viewport {
     this.canvas?.requestRenderAll();
   }
 
+  private updateZoomMinMax(): void {
+    const scaleX = this.screenWidth / this.worldWidth;
+    const scaleY = this.screenHeight / this.worldHeight;
+    const scaleFactor = Math.min(scaleX, scaleY);
+    this.minZoomLevel = scaleFactor;
+    this.maxZoomLevel = scaleFactor * 5;
+  }
+
   /**
    * Centers the viewport to the center of the world.
    */
@@ -628,6 +698,7 @@ export class Viewport {
   setPageAreaTarget(obj: fabric.Object, opts: any) {
     this.pageAreaTarget = obj;
     this.translate(0, 0);
+    this.updateZoomMinMax();
     this.requestRenderAll();
   }
 

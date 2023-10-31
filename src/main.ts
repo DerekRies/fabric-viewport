@@ -36,8 +36,8 @@ const image = fabric.Image.fromURL(documentImageUrl, (img) => {
   });
   interactionManager.constrainInteractions(img);
 
-  // viewport.setZoom(2);
-  viewport.fitToWorld();
+  viewport.setZoom(1);
+  // viewport.fitToWorld();
   viewport.setPageAreaTarget(img, { paddingX: 20, paddingY: 20 });
 
   const noNoObject = new fabric.Circle({
