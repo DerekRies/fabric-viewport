@@ -1,36 +1,39 @@
-/* #fabric-viewport-virtual-scrollbar-root {
-  --scrollbar-thickness: 8px;
-  --scrollbar-margin: 8px;
-  --scrollbar-border-radius: 10px;
-  width: 100%;
-  height: 100%;
-  position: relative;
-  box-sizing: border-box;
-} */
-
 .canvas-container {
   --scrollbar-thickness: 8px;
   --scrollbar-margin: 8px;
   --scrollbar-border-radius: 10px;
+  --scrollbar-track-color: #cdd7db;
+  --scrollbar-track-color-hover: #cdd7db;
+  --scrollbar-thumb-color: #657981;
+  --scrollbar-thumb-color-hover: #4a6168;
+  --scrollbar-thumb-color-active: #374e55;
 }
 
 .fv-virtual-scrollbar-container {
   opacity: 0;
   transition: opacity 0.3s ease-in;
   position: absolute;
-  background: #ddd;
+  background: var(--scrollbar-track-color);
   border-radius: var(--scrollbar-border-radius);
 }
 
+.fv-virtual-scrollbar-container:hover {
+  background: var(--scrollbar-track-color-hover);
+}
+
 .fv-virtual-scrollbar-thumb {
-  background: #bababa;
+  background: var(--scrollbar-thumb-color);
   position: absolute;
   border-radius: var(--scrollbar-border-radius);
   will-change: transform;
 }
 
 .fv-virtual-scrollbar-thumb:hover {
-  background: #999;
+  background: var(--scrollbar-thumb-color-hover);
+}
+
+.fv-virtual-scrollbar-thumb:active {
+  background: var(--scrollbar-thumb-color-active);
 }
 
 .fv-virtual-scrollbar-container.vertical-scrollbar {
@@ -61,10 +64,6 @@
   .fv-virtual-scrollbar-thumb {
   height: var(--scrollbar-thickness);
 }
-
-/* #fabric-viewport-virtual-scrollbar-root:hover .fv-virtual-scrollbar-container {
-  opacity: 1 !important;
-} */
 
 .canvas-container:hover .fv-virtual-scrollbar-container {
   opacity: 1 !important;
